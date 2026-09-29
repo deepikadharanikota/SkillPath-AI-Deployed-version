@@ -17,6 +17,12 @@ router = APIRouter()
 
 GITHUB_CLIENT_ID = (os.getenv("GITHUB_CLIENT_ID") or "").strip() or "mock_id"
 GITHUB_CLIENT_SECRET = (os.getenv("GITHUB_CLIENT_SECRET") or "").strip() or "mock_secret"
+
+GITHUB_AUTH_URL = "https://github.com/login/oauth/authorize"
+GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
+GITHUB_USER_URL = "https://api.github.com/user"
+GITHUB_EMAILS_URL = "https://api.github.com/user/emails"
+
 def get_frontend_url(request: Request = None) -> str:
     url = (os.getenv("FRONTEND_URL") or "").strip().rstrip("/")
     if not url:
