@@ -147,6 +147,25 @@ export function AuthProvider({ children }) {
       if (data?.session?.access_token) {
         setToken(data.session.access_token);
         return await hydrateProfile();
+      } else if (data?.user) {
+        // Try immediate sign-in in case session was not returned in signup response
+        try {
+          const { data: loginData } = await supabase.auth.signInWithPassword({
+            email: userEmail,
+            password,
+          });
+          if (loginData?.session?.access_token) {
+            setToken(loginData.session.access_token);
+            return await hydrateProfile();
+          }
+        } catch {
+          // Ignore and continue
+        }
+        
+        // If email confirmation is enabled on Supabase, notify clearly
+        if (!data.session) {
+          throw new Error('Account created! Supabase email confirmation is enabled: please confirm your email or turn off "Confirm email" in Supabase Dashboard > Authentication > Providers > Email.');
+        }
       }
     }
 

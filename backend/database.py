@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 raw_url = os.getenv(
     "DATABASE_URL",
     "postgresql+asyncpg://postgres:postgres@db:5432/skillpath"
-).strip()
+).strip().strip("\"'").strip()
 
 # Normalize PostgreSQL URL
 if raw_url.startswith("postgres://"):

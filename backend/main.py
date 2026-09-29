@@ -93,6 +93,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY", "supersecretkey_change_me"))
+from starlette.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    traceback.print_exc()
+    origin = request.headers.get("origin", "*")
+    headers = {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "*",
+        "Access-Control-Allow-Headers": "*",
+    }
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "error_type": type(exc).__name__},
+        headers=headers
+    )
 
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(resume.router, prefix="/resume", tags=["resume"])
@@ -108,9 +126,25 @@ def read_root():
     return {"status": "ok"}
 
 @app.get("/health")
-def health_check():
-    """Production health check endpoint for Render."""
-    return {"status": "ok"}
+async def health_check():
+    """Production health check endpoint for Render with database verification."""
+    db_status = "ok"
+    db_error = None
+    try:
+        from database import engine
+        from sqlalchemy import text
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception as e:
+        db_status = "error"
+        db_error = str(e)
+    
+    return {
+        "status": "ok",
+        "version": "1.0.2",
+        "database": db_status,
+        "database_error": db_error
+    }
 
 @app.get("/roles")
 def get_roles():

@@ -7,7 +7,7 @@
 export const API_URL = (
   import.meta.env.VITE_API_URL || 
   import.meta.env.VITE_BACKEND_URL || 
-  (import.meta.env.DEV ? "http://localhost:8002" : "")
+  (import.meta.env.DEV ? "http://localhost:8002" : "https://skillpath-ai-backend-wpr9.onrender.com")
 ).replace(/\/$/, "");
 
 export const getToken = () => localStorage.getItem("skillpath_token") || "";
