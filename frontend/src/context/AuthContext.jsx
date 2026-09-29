@@ -14,15 +14,15 @@ export function AuthProvider({ children }) {
       if (data && data.user) {
         setCurrentUser(data.user);
         return data.user;
-      } else {
+      }
+      return null;
+    } catch (err) {
+      console.warn('Session verification note:', err);
+      // Only purge token if server explicitly confirms the session is invalid (HTTP 401)
+      if (err.status === 401) {
         removeToken();
         setCurrentUser(null);
-        return null;
       }
-    } catch (err) {
-      console.warn('Session verification failed on init:', err);
-      removeToken();
-      setCurrentUser(null);
       return null;
     }
   };
@@ -47,6 +47,14 @@ export function AuthProvider({ children }) {
         const { data: { session } } = await supabase.auth.getSession();
         if (session && session.access_token) {
           setToken(session.access_token);
+          if (session.user) {
+            setCurrentUser({
+              id: session.user.id,
+              username: session.user.user_metadata?.username || session.user.email?.split('@')[0] || 'Learner',
+              email: session.user.email,
+              target_role: session.user.user_metadata?.target_role || 'ML Engineer'
+            });
+          }
         }
       } catch (e) {
         console.warn('Supabase getSession error:', e);
@@ -104,7 +112,9 @@ export function AuthProvider({ children }) {
           const res = await api.login(identifier, password);
           if (res && res.token) {
             setToken(res.token);
-            return await hydrateProfile();
+            if (res.user) setCurrentUser(res.user);
+            hydrateProfile().catch(() => {});
+            return res.user || { username: identifier };
           }
         } catch {
           throw new Error(error.message || 'Authentication failed');
@@ -113,7 +123,16 @@ export function AuthProvider({ children }) {
 
       if (data?.session?.access_token) {
         setToken(data.session.access_token);
-        return await hydrateProfile();
+        const supaUser = data.session.user;
+        const initialUser = {
+          id: supaUser?.id,
+          username: supaUser?.user_metadata?.username || supaUser?.email?.split('@')[0] || identifier,
+          email: supaUser?.email,
+          target_role: supaUser?.user_metadata?.target_role || 'ML Engineer'
+        };
+        setCurrentUser(initialUser);
+        hydrateProfile().catch(() => {});
+        return initialUser;
       }
     }
 
@@ -121,6 +140,7 @@ export function AuthProvider({ children }) {
     const res = await api.login(identifier, password);
     if (res && res.token) {
       setToken(res.token);
+      if (res.user) setCurrentUser(res.user);
     }
     return await hydrateProfile();
   };
@@ -146,7 +166,16 @@ export function AuthProvider({ children }) {
 
       if (data?.session?.access_token) {
         setToken(data.session.access_token);
-        return await hydrateProfile();
+        const supaUser = data.session.user;
+        const initialUser = {
+          id: supaUser?.id,
+          username: supaUser?.user_metadata?.username || username,
+          email: userEmail,
+          target_role: target_role || 'ML Engineer'
+        };
+        setCurrentUser(initialUser);
+        hydrateProfile().catch(() => {});
+        return initialUser;
       } else if (data?.user) {
         // Try immediate sign-in in case session was not returned in signup response
         try {
@@ -156,7 +185,16 @@ export function AuthProvider({ children }) {
           });
           if (loginData?.session?.access_token) {
             setToken(loginData.session.access_token);
-            return await hydrateProfile();
+            const supaUser = loginData.session.user;
+            const initialUser = {
+              id: supaUser?.id,
+              username: supaUser?.user_metadata?.username || username,
+              email: userEmail,
+              target_role: target_role || 'ML Engineer'
+            };
+            setCurrentUser(initialUser);
+            hydrateProfile().catch(() => {});
+            return initialUser;
           }
         } catch {
           // Ignore and continue
@@ -173,6 +211,7 @@ export function AuthProvider({ children }) {
     const res = await api.register(username, email, password, target_role);
     if (res && res.token) {
       setToken(res.token);
+      if (res.user) setCurrentUser(res.user);
     }
     return await hydrateProfile();
   };

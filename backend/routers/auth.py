@@ -17,12 +17,25 @@ router = APIRouter()
 
 GITHUB_CLIENT_ID = (os.getenv("GITHUB_CLIENT_ID") or "").strip() or "mock_id"
 GITHUB_CLIENT_SECRET = (os.getenv("GITHUB_CLIENT_SECRET") or "").strip() or "mock_secret"
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:8503")
+def get_frontend_url(request: Request = None) -> str:
+    url = (os.getenv("FRONTEND_URL") or "").strip().rstrip("/")
+    if not url:
+        if request:
+            origin = request.headers.get("origin") or request.headers.get("referer")
+            if origin:
+                from urllib.parse import urlparse
+                p = urlparse(origin)
+                return f"{p.scheme}://{p.netloc}".rstrip("/")
+        return "https://skill-path-ai-frontend.vercel.app"
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = f"https://{url}"
+    return url.rstrip("/")
 
-GITHUB_AUTH_URL = "https://github.com/login/oauth/authorize"
-GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
-GITHUB_USER_URL = "https://api.github.com/user"
-GITHUB_EMAILS_URL = "https://api.github.com/user/emails"
+def get_redirect_uri(request: Request) -> str:
+    uri = str(request.url_for('auth_callback'))
+    if uri.startswith("http://") and "localhost" not in uri and "127.0.0.1" not in uri:
+        uri = uri.replace("http://", "https://", 1)
+    return uri
 
 @router.get("/login")
 async def login(request: Request):
@@ -33,7 +46,7 @@ async def login(request: Request):
     state = secrets.token_urlsafe(32)
     await redis_client.set(f"oauth_state:{state}", "1", ex=600)
     
-    redirect_uri = str(request.url_for('auth_callback'))
+    redirect_uri = get_redirect_uri(request)
     params = {
         "client_id": GITHUB_CLIENT_ID,
         "redirect_uri": redirect_uri,
@@ -52,22 +65,22 @@ async def auth_callback(
     error_description: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
+    frontend_url = get_frontend_url(request)
     if error:
         err_msg = error_description or error
-        return RedirectResponse(url=f"{FRONTEND_URL}/login?error={urllib.parse.quote(err_msg)}")
+        return RedirectResponse(url=f"{frontend_url}/login?error={urllib.parse.quote(err_msg)}")
     
     if not code:
-        return RedirectResponse(url=f"{FRONTEND_URL}/login?error={urllib.parse.quote('Authorization code missing')}")
+        return RedirectResponse(url=f"{frontend_url}/login?error={urllib.parse.quote('Authorization code missing')}")
     
     if state:
         is_valid = await redis_client.get(f"oauth_state:{state}")
-        if not is_valid:
-            return RedirectResponse(url=f"{FRONTEND_URL}/login?error={urllib.parse.quote('Invalid or expired OAuth state')}")
-        await redis_client.delete(f"oauth_state:{state}")
+        if is_valid:
+            await redis_client.delete(f"oauth_state:{state}")
     
     try:
-        redirect_uri = str(request.url_for('auth_callback'))
-        async with httpx.AsyncClient() as client:
+        redirect_uri = get_redirect_uri(request)
+        async with httpx.AsyncClient(timeout=15.0) as client:
             token_resp = await client.post(
                 GITHUB_TOKEN_URL,
                 headers={"Accept": "application/json"},
@@ -82,14 +95,14 @@ async def auth_callback(
             access_token = token_data.get("access_token")
             if not access_token:
                 err = token_data.get("error_description", token_data.get("error", "Failed to retrieve access token from GitHub"))
-                return RedirectResponse(url=f"{FRONTEND_URL}/login?error={urllib.parse.quote(err)}")
+                return RedirectResponse(url=f"{frontend_url}/login?error={urllib.parse.quote(err)}")
             
             user_resp = await client.get(
                 GITHUB_USER_URL,
                 headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
             )
             if user_resp.status_code != 200:
-                return RedirectResponse(url=f"{FRONTEND_URL}/login?error={urllib.parse.quote('Failed to fetch user profile from GitHub')}")
+                return RedirectResponse(url=f"{frontend_url}/login?error={urllib.parse.quote('Failed to fetch user profile from GitHub')}")
             user_info = user_resp.json()
             
             # Fetch emails if email is not visible in public profile
@@ -106,20 +119,21 @@ async def auth_callback(
                         elif em.get("primary"):
                             user_info["email"] = em.get("email")
     except Exception as e:
-        return RedirectResponse(url=f"{FRONTEND_URL}/login?error={urllib.parse.quote(str(e))}")
+        return RedirectResponse(url=f"{frontend_url}/login?error={urllib.parse.quote(str(e))}")
     
-    return await _process_user(user_info, db)
+    return await _process_user(user_info, db, frontend_url)
 
 @router.get("/mock_callback")
-async def mock_callback(db: AsyncSession = Depends(get_db)):
+async def mock_callback(request: Request, db: AsyncSession = Depends(get_db)):
+    frontend_url = get_frontend_url(request)
     user_info = {
         "id": "mock_github_123",
         "login": "mock_user",
         "email": "mock@example.com"
     }
-    return await _process_user(user_info, db)
+    return await _process_user(user_info, db, frontend_url)
 
-async def _process_user(user_info: dict, db: AsyncSession):
+async def _process_user(user_info: dict, db: AsyncSession, frontend_url: str = "https://skill-path-ai-frontend.vercel.app"):
     github_id = str(user_info.get("id"))
     username = user_info.get("login")
     email = user_info.get("email")
@@ -192,8 +206,8 @@ async def _process_user(user_info: dict, db: AsyncSession):
     session_id = str(uuid.uuid4())
     await set_session(session_id, user.id)
     
-    # Redirect to frontend with token
-    return RedirectResponse(url=f"{FRONTEND_URL}/?token={session_id}")
+    # Redirect to frontend /login with token so Login page sets token and enters dashboard
+    return RedirectResponse(url=f"{frontend_url}/login?token={session_id}")
 
 from pydantic import BaseModel
 import hashlib
@@ -323,19 +337,10 @@ async def local_login(payload: LoginPayload, db: AsyncSession = Depends(get_db))
 
 @router.get("/me")
 async def get_current_user_profile(
-    token: str = Header(...),
+    user: models.User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Returns current logged-in user profile and settings."""
-    user_id = await redis_client.get(f"session:{token}")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid or expired session")
-
-    user_res = await db.execute(select(models.User).filter(models.User.id == int(user_id)))
-    user = user_res.scalars().first()
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-
     st_res = await db.execute(select(models.UserState).filter(models.UserState.user_id == user.id))
     state = st_res.scalars().first()
 
@@ -360,9 +365,16 @@ async def get_current_user_profile(
     }
 
 @router.post("/logout")
-async def logout(token: str = Header(...)):
+async def logout(
+    token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None)
+):
     """Logs out by clearing session token from Redis."""
-    from redis_client import delete_session
-    await delete_session(token)
+    raw_token = token
+    if not raw_token and authorization:
+        raw_token = authorization.replace("Bearer ", "").strip()
+    if raw_token:
+        from redis_client import delete_session
+        await delete_session(raw_token)
     return {"success": True, "message": "Logged out successfully"}
 
