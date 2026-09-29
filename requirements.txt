@@ -1,0 +1,13 @@
+numpy>=1.24
+streamlit>=1.38
+streamlit-autorefresh>=1.0
+matplotlib>=3.7
+
+# --- AI-generated quiz question pipeline (qgen/) ---
+youtube-transcript-api>=0.6   # fetch video transcripts
+nltk>=3.8                     # sentence splitting + POS tagging for answer extraction
+textstat>=0.7                 # readability-based difficulty scoring
+# Optional, only needed for real T5-based generation (offline fallback works
+# without these, using a simpler rule-based cloze question generator instead):
+# transformers>=4.40
+# torch>=2.2

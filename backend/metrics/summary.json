@@ -1,0 +1,60 @@
+{
+  "dqn_greedy": {
+    "avg_episode_reward": 5.3452764556169186,
+    "std_episode_reward": 0.26620028985401134,
+    "avg_quiz_score": 83.0274679244879,
+    "avg_code_score": 82.64492579745789,
+    "avg_topic_diversity": 5.68,
+    "episodes": 200
+  },
+  "random": {
+    "avg_episode_reward": 3.4527560695535873,
+    "std_episode_reward": 0.4605981850782412,
+    "avg_quiz_score": 43.36707390396877,
+    "avg_code_score": 43.08434997059001,
+    "avg_topic_diversity": 6.81,
+    "episodes": 200
+  },
+  "round_robin_beginner": {
+    "avg_episode_reward": 5.491877459116234,
+    "std_episode_reward": 0.12671215372120254,
+    "avg_quiz_score": 85.00784882468683,
+    "avg_code_score": 84.67347053805294,
+    "avg_topic_diversity": 9.0,
+    "episodes": 200
+  },
+  "rule_based_weakest_topic": {
+    "avg_episode_reward": 5.588385058487798,
+    "std_episode_reward": 0.15229204040788794,
+    "avg_quiz_score": 84.69638895855452,
+    "avg_code_score": 84.35404518171624,
+    "avg_topic_diversity": 5.875,
+    "episodes": 200
+  },
+  "paired_vs_dqn_greedy": {
+    "random": {
+      "mean_diff": 1.8925203860633315,
+      "ci_95": [
+        1.8197358585029066,
+        1.9661592820394393
+      ],
+      "significant": true
+    },
+    "round_robin_beginner": {
+      "mean_diff": -0.1466010034993139,
+      "ci_95": [
+        -0.18155052471194147,
+        -0.11303817690147376
+      ],
+      "significant": true
+    },
+    "rule_based_weakest_topic": {
+      "mean_diff": -0.2431086028708787,
+      "ci_95": [
+        -0.28405604840579074,
+        -0.20524092259124022
+      ],
+      "significant": true
+    }
+  }
+}
