@@ -445,7 +445,7 @@ export default function Dashboard() {
       {/* ── Summary Metrics Grid & Role Readiness Meter ── */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
         gap: '1.25rem'
       }}>
         {/* Role Readiness */}
@@ -455,11 +455,11 @@ export default function Dashboard() {
           <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Role Readiness</div>
         </div>
 
-        {/* Learning Time */}
+        {/* Overall Curriculum Progress */}
         <div className="glass-card" style={{ padding: '1.25rem', textAlign: 'center' }}>
-          <div style={{ color: '#818cf8', marginBottom: '8px' }}><Clock size={26} style={{ margin: '0 auto' }} /></div>
-          <div style={{ fontSize: '2rem', fontWeight: '800', color: '#fff' }}>{displayLearningTime}</div>
-          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Learning Time</div>
+          <div style={{ color: '#818cf8', marginBottom: '8px' }}><TrendingUp size={26} style={{ margin: '0 auto' }} /></div>
+          <div style={{ fontSize: '2rem', fontWeight: '800', color: '#fff' }}>{overview?.overall_progress ?? 0}%</div>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Overall Progress</div>
         </div>
 
         {/* Topics Mastered */}
@@ -467,6 +467,13 @@ export default function Dashboard() {
           <div style={{ color: '#34d399', marginBottom: '8px' }}><CheckCircle2 size={26} style={{ margin: '0 auto' }} /></div>
           <div style={{ fontSize: '2rem', fontWeight: '800', color: '#fff' }}>{topicsMastered}</div>
           <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Topics Mastered</div>
+        </div>
+
+        {/* Learning Time */}
+        <div className="glass-card" style={{ padding: '1.25rem', textAlign: 'center' }}>
+          <div style={{ color: '#a78bfa', marginBottom: '8px' }}><Clock size={26} style={{ margin: '0 auto' }} /></div>
+          <div style={{ fontSize: '2rem', fontWeight: '800', color: '#fff' }}>{displayLearningTime}</div>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Learning Time</div>
         </div>
 
         {/* Learning Streak */}

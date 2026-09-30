@@ -340,6 +340,39 @@ def calculate_topics_mastered(target_role: str, user_state) -> int:
     return completed_modules
 
 
+def calculate_curriculum_progress(target_role: str, user_state) -> int:
+    """
+    Progress of the candidate in the learning journey of that assigned curriculum (percentage).
+    """
+    if not user_state:
+        return 0
+
+    role_conf = get_role_config(target_role or "DevOps Engineer")
+    roadmap = role_conf.get("roadmap", [])
+    if not roadmap:
+        return 0
+
+    progress = getattr(user_state, "module_progress", None) or getattr(user_state, "progress", None) or {}
+    total_roadmap_modules = 0
+    completed_modules = 0
+
+    for m in roadmap:
+        topic = m.get("topic")
+        is_dsa = topic in ("Data Structures & Algorithms", "DSA")
+        mod_keys = DSA_MODULE_KEYS if is_dsa else MODULE_KEYS
+        total_roadmap_modules += len(mod_keys)
+
+        t_prog = progress.get(topic, {})
+        if is_dsa:
+            resolved = {DSA_MODULE_ALIASES.get(k, k): v for k, v in t_prog.items()}
+            t_prog = resolved
+        completed_modules += sum(1 for mk in mod_keys if t_prog.get(mk) == "completed")
+
+    if total_roadmap_modules == 0:
+        return 0
+    return int(round((completed_modules / total_roadmap_modules) * 100))
+
+
 def format_learning_time(hours: float) -> str:
     """
     Formats decimal hours into 'Xh Ym' format (e.g. 12.5833 -> '12h 35m', 0.0 -> '0h 00m').

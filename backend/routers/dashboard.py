@@ -24,7 +24,7 @@ import models
 from data import TOPICS, MODULE_KEYS, MODULE_STRUCTURE, ROLE_SKILLS, ROLES
 from skills_service import (
     compute_skill_gap, calculate_role_readiness, calculate_topics_mastered,
-    format_learning_time, calculate_user_streak
+    format_learning_time, calculate_user_streak, calculate_curriculum_progress
 )
 from roles_config import (
     get_role_config, get_role_roadmap, filter_gaps_with_prerequisites, TOPIC_SYLLABUS,
@@ -689,6 +689,7 @@ async def dashboard_summary(
 
     role_readiness_pct, readiness_details = calculate_role_readiness(target_role, state, all_quizzes)
     topics_mastered = calculate_topics_mastered(target_role, state)
+    curriculum_progress_pct = calculate_curriculum_progress(target_role, state)
     streak = calculate_user_streak(state.active_days if state else [], state.last_activity_date if state else None)
     formatted_learning_time = format_learning_time(state.total_learning_hours if state else 0.0)
 
@@ -742,7 +743,9 @@ async def dashboard_summary(
     overview_data = {
         "username": user.username,
         "has_started": bool(state),
-        "overall_progress": formatted_learning_time,
+        "overall_progress": curriculum_progress_pct,
+        "curriculum_progress": curriculum_progress_pct,
+        "curriculum_progress_pct": curriculum_progress_pct,
         "learning_time": formatted_learning_time,
         "learning_time_formatted": formatted_learning_time,
         "overall_learning_time": formatted_learning_time,
@@ -831,6 +834,7 @@ async def dashboard_overview(user: models.User = Depends(get_current_user), db: 
 
     role_readiness_pct, readiness_details = calculate_role_readiness(target_role, state, all_quizzes)
     topics_mastered = calculate_topics_mastered(target_role, state)
+    curriculum_progress_pct = calculate_curriculum_progress(target_role, state)
     streak = calculate_user_streak(state.active_days or [], state.last_activity_date)
     formatted_learning_time = format_learning_time(state.total_learning_hours or 0.0)
 
@@ -876,7 +880,9 @@ async def dashboard_overview(user: models.User = Depends(get_current_user), db: 
     return {
         "username": user.username,
         "has_started": True,
-        "overall_progress": formatted_learning_time,
+        "overall_progress": curriculum_progress_pct,
+        "curriculum_progress": curriculum_progress_pct,
+        "curriculum_progress_pct": curriculum_progress_pct,
         "learning_time": formatted_learning_time,
         "learning_time_formatted": formatted_learning_time,
         "overall_learning_time": formatted_learning_time,
