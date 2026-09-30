@@ -30,6 +30,7 @@ from roles_config import (
     get_role_config, get_role_roadmap, filter_gaps_with_prerequisites, TOPIC_SYLLABUS,
     DSA_MODULE_KEYS, DSA_MODULE_ALIASES, get_dsa_modules_def
 )
+from agent_utils import compute_topic_knowledge
 
 router = APIRouter()
 
