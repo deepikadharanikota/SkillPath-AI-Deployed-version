@@ -24,6 +24,7 @@ from redis_client import get_session, redis_client
 import models
 from data import QUIZ_BANK, TOPICS, MODULE_KEYS, MODULE_STRUCTURE, VIDEO_DB
 from roles_config import get_topic_syllabus, DSA_MODULE_KEYS, DSA_MODULE_ALIASES
+from skills_service import record_active_learning_day
 
 router = APIRouter()
 
@@ -499,34 +500,9 @@ async def submit_quiz(
         progress[topic] = topic_prog
         user_state.module_progress = progress
 
-    # Learning Hours & Streak
-    user_state.total_learning_hours = (user_state.total_learning_hours or 0) + 0.75
+    # Streak & Active Learning Day
     today_str = datetime.utcnow().strftime("%Y-%m-%d")
-    if user_state.last_activity_date != today_str:
-        user_state.current_streak = (user_state.current_streak or 0) + 1
-        user_state.last_activity_date = today_str
-
-    # Badges
-    badges = list(user_state.badges or [])
-    badge_ids = {b["id"] for b in badges}
-
-    if "first_steps" not in badge_ids:
-        badges.append({
-            "id": "first_steps",
-            "name": "First Steps",
-            "icon": "🌱",
-            "description": "Completed your first quiz!",
-            "earned_at": now_iso
-        })
-    if percentage >= 90 and "quiz_champion" not in badge_ids:
-        badges.append({
-            "id": "quiz_champion",
-            "name": "Quiz Champion",
-            "icon": "🏆",
-            "description": "Scored 90%+ on a quiz!",
-            "earned_at": now_iso
-        })
-    user_state.badges = badges
+    record_active_learning_day(user_state, today_str)
 
     # Persist in QuizHistory
     history_entry = models.QuizHistory(

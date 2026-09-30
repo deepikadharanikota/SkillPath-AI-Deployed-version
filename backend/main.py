@@ -41,6 +41,7 @@ async def lifespan(app: FastAPI):
                 "ALTER TABLE user_states ADD COLUMN IF NOT EXISTS current_ability FLOAT DEFAULT 0.5;",
                 "ALTER TABLE user_states ADD COLUMN IF NOT EXISTS created_at VARCHAR;",
                 "ALTER TABLE user_states ADD COLUMN IF NOT EXISTS updated_at VARCHAR;",
+                "ALTER TABLE user_states ADD COLUMN IF NOT EXISTS active_days JSON DEFAULT '[]'::json;",
                 "CREATE INDEX IF NOT EXISTS ix_users_supabase_id ON users (supabase_id);",
                 "CREATE INDEX IF NOT EXISTS ix_quiz_history_user_id ON quiz_history (user_id);",
                 "CREATE INDEX IF NOT EXISTS ix_quiz_history_topic ON quiz_history (topic);",

@@ -12,6 +12,7 @@ from database import get_db
 import models
 from redis_client import set_session, redis_client
 from auth_utils import get_current_user
+from skills_service import calculate_user_streak, format_learning_time
 
 router = APIRouter()
 
@@ -350,6 +351,9 @@ async def get_current_user_profile(
     st_res = await db.execute(select(models.UserState).filter(models.UserState.user_id == user.id))
     state = st_res.scalars().first()
 
+    streak = calculate_user_streak(state.active_days or [], state.last_activity_date) if state else 0
+    formatted_hours = format_learning_time(state.total_learning_hours or 0.0) if state else "0h 00m"
+
     return {
         "user": {
             "id": user.id,
@@ -360,8 +364,10 @@ async def get_current_user_profile(
             "resume_filename": state.resume_filename if state else None,
             "current_topic": state.current_topic if state else "Machine Learning",
             "current_difficulty": state.current_difficulty if state else "beginner",
-            "total_hours": state.total_learning_hours if state else 0,
-            "streak": state.current_streak if state else 0,
+            "total_hours": round(state.total_learning_hours or 0.0, 2) if state else 0.0,
+            "learning_time": formatted_hours,
+            "formatted_learning_time": formatted_hours,
+            "streak": streak,
             "dsa_language": getattr(state, "dsa_language", "Python") or "Python",
             "dsaLanguage": getattr(state, "dsa_language", "Python") or "Python",
             "dsa_lang_code": ("cpp" if getattr(state, "dsa_language", "").lower() in ["c++", "cpp"] else getattr(state, "dsa_language", "python").lower()) if state else "python",

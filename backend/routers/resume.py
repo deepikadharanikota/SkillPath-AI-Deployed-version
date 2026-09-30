@@ -23,7 +23,7 @@ from database import get_db
 from redis_client import redis_client
 from auth_utils import get_current_user
 import models
-from skills_service import extract_skills_from_text, categorize_skills, compute_skill_gap
+from skills_service import extract_skills_from_text, categorize_skills, compute_skill_gap, calculate_role_readiness
 from data import ROLES, ROLE_SKILLS
 
 logger = logging.getLogger("resume_router")
@@ -179,7 +179,15 @@ async def upload_resume(
     await db.commit()
     await db.refresh(user_state)
 
+    try:
+        await redis_client.delete(f"dashboard_insights:{user.id}")
+        await redis_client.delete(f"learning_resume:{user.id}")
+        await redis_client.delete(f"dashboard_summary:{user.id}")
+    except Exception:
+        pass
+
     gap_data = compute_skill_gap(skills, selected_role)
+    readiness_pct, readiness_details = calculate_role_readiness(selected_role, user_state)
 
     return {
         "success": True,
@@ -192,7 +200,9 @@ async def upload_resume(
         },
         "extracted_skills": skills,
         "categorized_skills": categorized,
-        "skill_gap": gap_data
+        "skill_gap": gap_data,
+        "role_readiness_pct": readiness_pct,
+        "role_readiness_details": readiness_details
     }
 
 class TargetRoleUpdate(BaseModel):
@@ -220,10 +230,13 @@ async def update_target_role(
     await db.commit()
 
     gap_data = compute_skill_gap(user_state.extracted_skills or [], payload.target_role)
+    readiness_pct, readiness_details = calculate_role_readiness(payload.target_role, user_state)
     return {
         "success": True,
         "target_role": payload.target_role,
-        "skill_gap": gap_data
+        "skill_gap": gap_data,
+        "role_readiness_pct": readiness_pct,
+        "role_readiness_details": readiness_details
     }
 
 @router.get("")
@@ -235,16 +248,23 @@ async def get_resume_info(
     res = await db.execute(select(models.UserState).filter(models.UserState.user_id == user.id))
     user_state = res.scalars().first()
     if not user_state or not user_state.resume_filename:
+        role = user_state.target_role if user_state else "ML Engineer"
+        gap = compute_skill_gap([], role)
+        readiness_pct, readiness_details = calculate_role_readiness(role, user_state)
         return {
             "has_resume": False,
             "resume": None,
             "extracted_skills": [],
             "categorized_skills": {},
-            "target_role": user_state.target_role if user_state else "ML Engineer",
-            "skill_gap": compute_skill_gap([], user_state.target_role if user_state else "ML Engineer")
+            "target_role": role,
+            "skill_gap": gap,
+            "role_readiness_pct": readiness_pct,
+            "role_readiness_details": readiness_details
         }
 
-    gap_data = compute_skill_gap(user_state.extracted_skills or [], user_state.target_role or "ML Engineer")
+    role = user_state.target_role or "ML Engineer"
+    gap_data = compute_skill_gap(user_state.extracted_skills or [], role)
+    readiness_pct, readiness_details = calculate_role_readiness(role, user_state)
 
     return {
         "has_resume": True,
@@ -255,8 +275,10 @@ async def get_resume_info(
         },
         "extracted_skills": user_state.extracted_skills or [],
         "categorized_skills": user_state.extracted_skills_categorized or {},
-        "target_role": user_state.target_role,
-        "skill_gap": gap_data
+        "target_role": role,
+        "skill_gap": gap_data,
+        "role_readiness_pct": readiness_pct,
+        "role_readiness_details": readiness_details
     }
 
 @router.get("/skill-gap")
@@ -267,7 +289,10 @@ async def get_skill_gap(
     """Returns comprehensive skill gap analysis."""
     res = await db.execute(select(models.UserState).filter(models.UserState.user_id == user.id))
     user_state = res.scalars().first()
-    if not user_state:
-        return compute_skill_gap([], "ML Engineer")
-
-    return compute_skill_gap(user_state.extracted_skills or [], user_state.target_role or "ML Engineer")
+    role = user_state.target_role if user_state else "ML Engineer"
+    skills = (user_state.extracted_skills if user_state else []) or []
+    gap = compute_skill_gap(skills, role)
+    readiness_pct, readiness_details = calculate_role_readiness(role, user_state)
+    gap["role_readiness_pct"] = readiness_pct
+    gap["role_readiness_details"] = readiness_details
+    return gap

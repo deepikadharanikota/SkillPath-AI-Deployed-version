@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS public.user_states (
     total_learning_hours DOUBLE PRECISION DEFAULT 0.0,
     current_streak INTEGER DEFAULT 0,
     last_activity_date VARCHAR,
+    active_days JSONB DEFAULT '[]'::jsonb,
     completed_projects INTEGER DEFAULT 0,
     badges JSONB
 );

@@ -50,6 +50,7 @@ class UserState(Base):
     total_learning_hours = Column(Float, default=0.0)
     current_streak = Column(Integer, default=0)
     last_activity_date = Column(String, nullable=True)   # ISO date "YYYY-MM-DD"
+    active_days = Column(JSON, default=list, nullable=True)  # List of unique active calendar dates ["YYYY-MM-DD"]
     completed_projects = Column(Integer, default=0)
     badges = Column(JSON, nullable=True)                 # list of badge dicts
 

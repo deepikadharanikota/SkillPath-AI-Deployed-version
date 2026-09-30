@@ -22,8 +22,10 @@ from database import get_db
 from redis_client import get_session, redis_client
 import models
 from data import TOPICS, MODULE_KEYS, MODULE_STRUCTURE, ROLE_SKILLS, ROLES
-from agent_utils import compute_topic_knowledge, get_module_status, is_topic_complete
-from skills_service import compute_skill_gap
+from skills_service import (
+    compute_skill_gap, calculate_role_readiness, calculate_topics_mastered,
+    format_learning_time, calculate_user_streak
+)
 from roles_config import (
     get_role_config, get_role_roadmap, filter_gaps_with_prerequisites, TOPIC_SYLLABUS,
     DSA_MODULE_KEYS, DSA_MODULE_ALIASES, get_dsa_modules_def
@@ -329,9 +331,7 @@ def _build_skills_data(state, progress, stats, all_quizzes, target_role, role_co
             missing_list.append(item)
 
     skills_list.sort(key=lambda s: (-int(s["is_current"]), -s["progress_pct"]))
-    role_req_skills = [s for s in skills_list if s["is_role_requirement"]]
-    role_mastered = [s for s in role_req_skills if s["category"] == "Known"]
-    readiness_pct = int((len(role_mastered) / len(role_req_skills)) * 100) if role_req_skills else 0
+    readiness_pct, readiness_details = calculate_role_readiness(target_role, state, all_quizzes)
 
     return {
         "skills": skills_list,
@@ -347,7 +347,8 @@ def _build_skills_data(state, progress, stats, all_quizzes, target_role, role_co
             "learning_count": len(learning_list),
             "needs_improvement_count": len(needs_improvement_list),
             "missing_count": len(missing_list),
-            "role_readiness_pct": readiness_pct
+            "role_readiness_pct": readiness_pct,
+            "role_readiness_details": readiness_details
         },
         "target_role": target_role
     }
@@ -659,14 +660,7 @@ async def dashboard_summary(
     all_quizzes = quiz_result.scalars().all()
     quiz_count = len(all_quizzes)
 
-    # 2. Badges
-    if state:
-        new_badges = check_and_award_badges(state, quiz_count)
-        if new_badges:
-            state.badges = (state.badges or []) + new_badges
-            await db.commit()
-
-    # 3. Timeline / Recent Activities
+    # 2. Timeline / Recent Activities
     act_result = await db.execute(
         select(models.LearningActivity)
         .filter(models.LearningActivity.user_id == user.id)
@@ -686,21 +680,16 @@ async def dashboard_summary(
         for act in activities
     ]
 
-    # 3. Role
+    # 3. Role & Dynamic Role Readiness
     target_role = (state.target_role if state else None) or "DevOps Engineer"
     role_conf = get_role_config(target_role)
     roadmap = role_conf.get("roadmap", [])
     roadmap_topics = [m["topic"] for m in roadmap]
-    extracted_lower = {s.lower().strip() for s in ((state.extracted_skills if state else None) or [])}
 
-    mastered_count = 0
-    for t in roadmap_topics:
-        t_lower = t.lower().strip()
-        is_known = (t_lower in extracted_lower) or any(t_lower in s for s in extracted_lower)
-        is_comp = stats["topic_details"].get(t, {}).get("progress_pct", 0) == 100
-        if is_known or is_comp:
-            mastered_count += 1
-    role_readiness_pct = int((mastered_count / len(roadmap_topics)) * 100) if roadmap_topics else 0
+    role_readiness_pct, readiness_details = calculate_role_readiness(target_role, state, all_quizzes)
+    topics_mastered = calculate_topics_mastered(target_role, state)
+    streak = calculate_user_streak(state.active_days if state else [], state.last_activity_date if state else None)
+    formatted_learning_time = format_learning_time(state.total_learning_hours if state else 0.0)
 
     # 4. Continuation course
     continue_course = None
@@ -722,6 +711,25 @@ async def dashboard_summary(
                 "navigate_url": f"/learning/{c_topic}?module={active_mod}&video={state.last_video_id or ''}&t={int(pos_sec)}"
             }
 
+    if not continue_course and roadmap_topics:
+        next_topic = roadmap_topics[0]
+        for t in roadmap_topics:
+            t_detail = stats["topic_details"].get(t, {})
+            if t_detail.get("progress_pct", 0) < 100:
+                next_topic = t
+                break
+        continue_course = {
+            "topic": next_topic,
+            "module": "intro",
+            "video_id": None,
+            "video_title": f"Start learning {next_topic} for {target_role}",
+            "position_seconds": 0.0,
+            "formatted_position": "00:00",
+            "progress_pct": stats["topic_details"].get(next_topic, {}).get("progress_pct", 0),
+            "last_accessed_at": state.last_accessed_at if state else None,
+            "navigate_url": f"/learning/{next_topic}?module=intro"
+        }
+
     # 5. Modular sections
     dsa_info = _build_dsa_info(state, progress, role_conf)
     skills_data = _build_skills_data(state, progress, stats, all_quizzes, target_role, role_conf)
@@ -729,22 +737,26 @@ async def dashboard_summary(
     roadmap_data = _build_roadmap_data(state, progress, stats, target_role, role_conf)
     quiz_analysis_data = _build_quiz_analysis_data(all_quizzes)
 
-    # Overview
+    # Overview Metrics (derived deterministically from persistent state)
     overview_data = {
         "username": user.username,
         "has_started": bool(state),
-        "overall_progress": stats["overall_pct"],
-        "completed_modules": stats["completed_modules"],
+        "overall_progress": formatted_learning_time,
+        "learning_time": formatted_learning_time,
+        "learning_time_formatted": formatted_learning_time,
+        "overall_learning_time": formatted_learning_time,
+        "topics_mastered": topics_mastered,
+        "completed_modules": topics_mastered,
         "total_modules": stats["total_modules"],
-        "topics_completed": stats["topics_completed"],
+        "topics_completed": topics_mastered,
         "topics_in_progress": stats["topics_in_progress"],
-        "total_learning_hours": round(state.total_learning_hours or 0, 1) if state else 0.0,
-        "current_streak": state.current_streak or 0 if state else 0,
+        "total_learning_hours": round(state.total_learning_hours or 0.0, 2) if state else 0.0,
+        "current_streak": streak,
         "completed_projects": state.completed_projects or 0 if state else 0,
-        "badges": state.badges or [] if state else [],
         "target_role": target_role,
         "extracted_skills": state.extracted_skills or [] if state else [],
         "role_readiness_pct": role_readiness_pct,
+        "role_readiness_details": readiness_details,
         "continue_course": continue_course,
         "dsa_language": dsa_info["dsa_language"],
         "initial_performance_category": getattr(state, "initial_performance_category", None) if state else None,
@@ -783,47 +795,43 @@ async def dashboard_overview(user: models.User = Depends(get_current_user), db: 
         return {
             "username": user.username,
             "has_started": False,
-            "overall_progress": 0,
+            "overall_progress": "0h 00m",
+            "learning_time": "0h 00m",
+            "learning_time_formatted": "0h 00m",
+            "overall_learning_time": "0h 00m",
+            "topics_mastered": 0,
+            "completed_modules": 0,
+            "total_modules": 0,
             "topics_completed": 0,
             "topics_in_progress": 0,
             "total_learning_hours": 0.0,
             "current_streak": 0,
             "completed_projects": 0,
-            "badges": [],
             "target_role": None,
+            "role_readiness_pct": 0,
+            "continue_course": None
         }
 
     progress = _safe_progress(state)
     stats = _compute_overall_progress(progress)
 
-    # Count quiz history entries as a proxy for module completions
-    quiz_count_result = await db.execute(
-        select(func.count(models.QuizHistory.id)).filter(models.QuizHistory.user_id == user.id)
+    # Quizzes
+    quiz_res = await db.execute(
+        select(models.QuizHistory)
+        .filter(models.QuizHistory.user_id == user.id)
     )
-    quiz_count = quiz_count_result.scalar() or 0
+    all_quizzes = quiz_res.scalars().all()
 
-    # Check for new badges
-    new_badges = check_and_award_badges(state, quiz_count)
-    if new_badges:
-        all_badges = (state.badges or []) + new_badges
-        state.badges = all_badges
-        await db.commit()
-
-    # Target role readiness calculation
+    # Target role & Role Readiness
     target_role = state.target_role or "DevOps Engineer"
     role_conf = get_role_config(target_role)
     roadmap = role_conf.get("roadmap", [])
     roadmap_topics = [m["topic"] for m in roadmap]
-    extracted_lower = {s.lower().strip() for s in (state.extracted_skills or [])}
-    
-    mastered_count = 0
-    for t in roadmap_topics:
-        t_lower = t.lower().strip()
-        is_known = (t_lower in extracted_lower) or any(t_lower in s for s in extracted_lower)
-        is_comp = stats["topic_details"].get(t, {}).get("progress_pct", 0) == 100
-        if is_known or is_comp:
-            mastered_count += 1
-    role_readiness_pct = int((mastered_count / len(roadmap_topics)) * 100) if roadmap_topics else 0
+
+    role_readiness_pct, readiness_details = calculate_role_readiness(target_role, state, all_quizzes)
+    topics_mastered = calculate_topics_mastered(target_role, state)
+    streak = calculate_user_streak(state.active_days or [], state.last_activity_date)
+    formatted_learning_time = format_learning_time(state.total_learning_hours or 0.0)
 
     # Current continuation course
     continue_course = None
@@ -845,21 +853,44 @@ async def dashboard_overview(user: models.User = Depends(get_current_user), db: 
                 "navigate_url": f"/learning/{c_topic}?module={active_mod}&video={state.last_video_id or ''}&t={int(pos_sec)}"
             }
 
+    if not continue_course and roadmap_topics:
+        next_topic = roadmap_topics[0]
+        for t in roadmap_topics:
+            t_detail = stats["topic_details"].get(t, {})
+            if t_detail.get("progress_pct", 0) < 100:
+                next_topic = t
+                break
+        continue_course = {
+            "topic": next_topic,
+            "module": "intro",
+            "video_id": None,
+            "video_title": f"Start learning {next_topic} for {target_role}",
+            "position_seconds": 0.0,
+            "formatted_position": "00:00",
+            "progress_pct": stats["topic_details"].get(next_topic, {}).get("progress_pct", 0),
+            "last_accessed_at": state.last_accessed_at,
+            "navigate_url": f"/learning/{next_topic}?module=intro"
+        }
+
     return {
         "username": user.username,
         "has_started": True,
-        "overall_progress": stats["overall_pct"],
-        "completed_modules": stats["completed_modules"],
+        "overall_progress": formatted_learning_time,
+        "learning_time": formatted_learning_time,
+        "learning_time_formatted": formatted_learning_time,
+        "overall_learning_time": formatted_learning_time,
+        "topics_mastered": topics_mastered,
+        "completed_modules": topics_mastered,
         "total_modules": stats["total_modules"],
-        "topics_completed": stats["topics_completed"],
+        "topics_completed": topics_mastered,
         "topics_in_progress": stats["topics_in_progress"],
-        "total_learning_hours": round(state.total_learning_hours or 0, 1),
-        "current_streak": state.current_streak or 0,
+        "total_learning_hours": round(state.total_learning_hours or 0.0, 2),
+        "current_streak": streak,
         "completed_projects": state.completed_projects or 0,
-        "badges": state.badges or [],
         "target_role": state.target_role,
         "extracted_skills": state.extracted_skills or [],
         "role_readiness_pct": role_readiness_pct,
+        "role_readiness_details": readiness_details,
         "continue_course": continue_course,
         "dsa_language": getattr(state, "dsa_language", "Python") or "Python",
         "initial_performance_category": getattr(state, "initial_performance_category", None),

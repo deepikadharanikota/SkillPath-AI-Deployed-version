@@ -224,6 +224,78 @@ export default function LearningView() {
     saveVideoPosition(vidKey, rememberedPos, currentTopic, effectiveModule, video.title);
   };
 
+  const currentVideoPosRef = useRef(resumeSeconds || 0);
+  const lastSavedPosRef = useRef(resumeSeconds || 0);
+
+  useEffect(() => {
+    currentVideoPosRef.current = resumeSeconds || 0;
+    lastSavedPosRef.current = resumeSeconds || 0;
+  }, [resumeSeconds, activeVideo]);
+
+  // Periodic video playback position persistence (saves periodically to backend while user is watching)
+  useEffect(() => {
+    if (!activeVideo) return;
+    const vidKey = activeVideo.id || activeVideo.url;
+
+    // Listen to YouTube postMessage events if supported
+    const handleYouTubeMessage = (event) => {
+      try {
+        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        if (data && data.event === 'infoDelivery' && data.info && typeof data.info.currentTime === 'number') {
+          currentVideoPosRef.current = Math.floor(data.info.currentTime);
+        }
+      } catch {}
+    };
+
+    window.addEventListener('message', handleYouTubeMessage);
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        currentVideoPosRef.current += 5;
+        // Save periodically every 15s of progress
+        if (Math.abs(currentVideoPosRef.current - lastSavedPosRef.current) >= 15) {
+          lastSavedPosRef.current = currentVideoPosRef.current;
+          saveVideoPosition(
+            vidKey,
+            currentVideoPosRef.current,
+            currentTopic,
+            effectiveModule,
+            activeVideo.title
+          );
+        }
+      }
+    }, 5000);
+
+    const handleBeforeUnload = () => {
+      if (currentVideoPosRef.current > 0) {
+        saveVideoPosition(
+          vidKey,
+          currentVideoPosRef.current,
+          currentTopic,
+          effectiveModule,
+          activeVideo.title
+        );
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('message', handleYouTubeMessage);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      if (currentVideoPosRef.current > 0 && Math.abs(currentVideoPosRef.current - lastSavedPosRef.current) > 2) {
+        saveVideoPosition(
+          vidKey,
+          currentVideoPosRef.current,
+          currentTopic,
+          effectiveModule,
+          activeVideo.title
+        );
+      }
+    };
+  }, [activeVideo, currentTopic, effectiveModule, saveVideoPosition]);
+
   const currentModuleVideos = (videoData?.videos || []).filter(v => v.module === effectiveModule);
   const currentVideoIndex = currentModuleVideos.findIndex(v => 
     activeVideo && (activeVideo.id || activeVideo.url) === (v.id || v.url)
@@ -356,7 +428,7 @@ export default function LearningView() {
       vidId = url.split('youtu.be/')[1]?.split('?')[0];
     }
     if (!vidId) return '';
-    let embed = `https://www.youtube.com/embed/${vidId}?autoplay=0`;
+    let embed = `https://www.youtube.com/embed/${vidId}?autoplay=0&enablejsapi=1`;
     if (startSec && startSec > 0) {
       embed += `&start=${Math.floor(startSec)}`;
     }

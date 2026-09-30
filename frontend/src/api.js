@@ -79,6 +79,21 @@ export const api = {
       method: "POST",
       body: { topic, module, video_id, position_seconds, video_title },
     }),
+  sendTimeHeartbeat: (duration_seconds, topic = null, module = null, client_date = null, timezone = null) => {
+    const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const now = new Date();
+    const localDate = client_date || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    return request("/learning/time-heartbeat", {
+      method: "POST",
+      body: {
+        duration_seconds,
+        topic,
+        module,
+        client_date: localDate,
+        timezone: tz,
+      },
+    });
+  },
   getVideos: (topic, module, difficulty) => {
     let url = `/learning/videos?topic=${encodeURIComponent(topic)}&module=${encodeURIComponent(module)}`;
     if (difficulty) url += `&difficulty=${encodeURIComponent(difficulty)}`;

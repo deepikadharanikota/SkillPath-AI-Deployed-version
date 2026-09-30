@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { 
-  Award, 
   BookOpen, 
   CheckCircle2, 
   Clock, 
@@ -118,6 +117,13 @@ export default function Dashboard() {
 
   const continueCourse = overview?.continue_course;
   const roleReadiness = overview?.role_readiness_pct ?? skillsData?.summary?.role_readiness_pct ?? 0;
+  const displayLearningTime = overview?.learning_time_formatted || overview?.learning_time || overview?.overall_learning_time || overview?.overall_progress || (
+    overview?.total_learning_hours 
+      ? `${Math.floor(overview.total_learning_hours)}h ${Math.round((overview.total_learning_hours % 1) * 60).toString().padStart(2, '0')}m`
+      : '0h 00m'
+  );
+  const topicsMastered = overview?.topics_mastered ?? overview?.completed_modules ?? overview?.topics_completed ?? 0;
+  const currentStreak = overview?.current_streak || 0;
   const categorized = skillsData.categorized || {};
   const allSkillsList = skillsData.skills || [];
 
@@ -352,11 +358,14 @@ export default function Dashboard() {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '2rem', alignItems: 'center' }}>
             <div>
+              <div style={{ fontSize: '0.82rem', color: '#a5b4fc', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: '700', marginBottom: '4px' }}>
+                Continue Learning
+              </div>
               <h2 style={{ fontSize: '1.6rem', marginBottom: '6px', color: '#fff' }}>
-                Continue Learning: {continueCourse.topic}
+                Course: {continueCourse.topic}
               </h2>
               <p style={{ color: '#c7d2fe', fontSize: '0.95rem', marginBottom: '12px' }}>
-                📺 {continueCourse.video_title}
+                📺 Video: {continueCourse.video_title}
               </p>
 
               <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '1rem' }}>
@@ -371,7 +380,7 @@ export default function Dashboard() {
                   color: '#e2e8f0'
                 }}>
                   <Clock size={14} color="#818cf8" />
-                  <span>Resume from: <strong>{continueCourse.formatted_position || '00:00'}</strong></span>
+                  <span>Resume Video: <strong>{continueCourse.formatted_position || '00:00'}</strong></span>
                 </span>
 
                 <span style={{
@@ -386,6 +395,20 @@ export default function Dashboard() {
                 }}>
                   <Layers size={14} color="#a855f7" />
                   <span>Module: <strong>{continueCourse.module.toUpperCase()}</strong></span>
+                </span>
+
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  padding: '4px 12px',
+                  borderRadius: '20px',
+                  fontSize: '0.82rem',
+                  color: '#e2e8f0'
+                }}>
+                  <CheckCircle2 size={14} color="#34d399" />
+                  <span>Progress: <strong>{continueCourse.progress_pct || 0}%</strong></span>
                 </span>
               </div>
 
@@ -411,7 +434,7 @@ export default function Dashboard() {
                 }}
               >
                 <PlayCircle size={18} />
-                <span>Resume Course</span>
+                <span>Continue Learning</span>
                 <ArrowRight size={16} />
               </button>
             </div>
@@ -422,7 +445,7 @@ export default function Dashboard() {
       {/* ── Summary Metrics Grid & Role Readiness Meter ── */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
         gap: '1.25rem'
       }}>
         {/* Role Readiness */}
@@ -432,39 +455,25 @@ export default function Dashboard() {
           <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Role Readiness</div>
         </div>
 
-        {/* Overall Curriculum Progress */}
+        {/* Learning Time */}
         <div className="glass-card" style={{ padding: '1.25rem', textAlign: 'center' }}>
-          <div style={{ color: '#818cf8', marginBottom: '8px' }}><TrendingUp size={26} style={{ margin: '0 auto' }} /></div>
-          <div style={{ fontSize: '2rem', fontWeight: '800', color: '#fff' }}>{overview?.overall_progress || 0}%</div>
-          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Overall Progress</div>
+          <div style={{ color: '#818cf8', marginBottom: '8px' }}><Clock size={26} style={{ margin: '0 auto' }} /></div>
+          <div style={{ fontSize: '2rem', fontWeight: '800', color: '#fff' }}>{displayLearningTime}</div>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Learning Time</div>
         </div>
 
-        {/* Topics Completed */}
+        {/* Topics Mastered */}
         <div className="glass-card" style={{ padding: '1.25rem', textAlign: 'center' }}>
           <div style={{ color: '#34d399', marginBottom: '8px' }}><CheckCircle2 size={26} style={{ margin: '0 auto' }} /></div>
-          <div style={{ fontSize: '2rem', fontWeight: '800', color: '#fff' }}>{overview?.topics_completed || 0}</div>
+          <div style={{ fontSize: '2rem', fontWeight: '800', color: '#fff' }}>{topicsMastered}</div>
           <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Topics Mastered</div>
-        </div>
-
-        {/* Learning Hours */}
-        <div className="glass-card" style={{ padding: '1.25rem', textAlign: 'center' }}>
-          <div style={{ color: '#a78bfa', marginBottom: '8px' }}><Clock size={26} style={{ margin: '0 auto' }} /></div>
-          <div style={{ fontSize: '2rem', fontWeight: '800', color: '#fff' }}>{overview?.total_learning_hours || 0}h</div>
-          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Learning Hours</div>
         </div>
 
         {/* Learning Streak */}
         <div className="glass-card" style={{ padding: '1.25rem', textAlign: 'center' }}>
           <div style={{ color: '#f59e0b', marginBottom: '8px' }}><Flame size={26} style={{ margin: '0 auto' }} /></div>
-          <div style={{ fontSize: '2rem', fontWeight: '800', color: '#fff' }}>{overview?.current_streak || 0} <span style={{ fontSize: '1rem' }}>days</span></div>
+          <div style={{ fontSize: '2rem', fontWeight: '800', color: '#fff' }}>{currentStreak} <span style={{ fontSize: '1rem' }}>days</span></div>
           <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Streak</div>
-        </div>
-
-        {/* Achievements / Badges */}
-        <div className="glass-card" style={{ padding: '1.25rem', textAlign: 'center' }}>
-          <div style={{ color: '#f43f5e', marginBottom: '8px' }}><Award size={26} style={{ margin: '0 auto' }} /></div>
-          <div style={{ fontSize: '2rem', fontWeight: '800', color: '#fff' }}>{overview?.badges?.length || 0}</div>
-          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Badges</div>
         </div>
       </div>
 

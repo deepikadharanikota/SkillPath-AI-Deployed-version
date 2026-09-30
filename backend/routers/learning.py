@@ -27,6 +27,7 @@ from roles_config import (
     TOPIC_SYLLABUS, get_topic_syllabus, get_role_config, filter_gaps_with_prerequisites,
     DSA_MODULE_KEYS, DSA_MODULE_ALIASES, get_dsa_modules_def, get_dsa_phase0
 )
+from skills_service import format_learning_time, record_active_learning_day, calculate_user_streak
 from video_validator import VideoValidator, extract_video_id
 
 router = APIRouter()
@@ -328,62 +329,8 @@ async def submit_module(payload: ModuleSubmit, user: models.User = Depends(get_c
         )
         db.add(topic_activity)
 
-    # 3. Update learning hours (+0.75 per module)
-    user_state.total_learning_hours = (user_state.total_learning_hours or 0) + 0.75
-
-    # 4. Update streak
-    last_date = user_state.last_activity_date
-    if last_date:
-        try:
-            last = datetime.strptime(last_date, "%Y-%m-%d").date()
-            diff = (now.date() - last).days
-            if diff == 1:
-                user_state.current_streak = (user_state.current_streak or 0) + 1
-            elif diff > 1:
-                user_state.current_streak = 1
-            # same day: streak unchanged
-        except (ValueError, TypeError):
-            user_state.current_streak = 1
-    else:
-        user_state.current_streak = 1
-    user_state.last_activity_date = today_str
-
-    # 5. Badge checks
-    from routers.dashboard import check_and_award_badges
-    from sqlalchemy import func as sa_func
-
-    quiz_count_res = await db.execute(
-        select(sa_func.count(models.QuizHistory.id)).filter(models.QuizHistory.user_id == user.id)
-    )
-    quiz_count = quiz_count_res.scalar() or 0
-    new_badges = check_and_award_badges(user_state, quiz_count)
-
-    # High scorer badge (90%+)
-    if payload.quiz_score >= 90:
-        existing_ids = {b["id"] for b in (user_state.badges or [])}
-        if "high_scorer" not in existing_ids:
-            new_badges.append({
-                "id": "high_scorer",
-                "name": "Quiz Champion",
-                "icon": "🎯",
-                "description": "Scored 90%+ on a quiz",
-                "earned_at": now_iso,
-            })
-
-    if new_badges:
-        all_badges = (user_state.badges or []) + new_badges
-        user_state.badges = all_badges
-        # Log badge activities
-        for badge in new_badges:
-            badge_activity = models.LearningActivity(
-                user_id=user.id,
-                activity_type="earned_badge",
-                title=f"Earned: {badge['icon']} {badge['name']}",
-                description=badge["description"],
-                topic=None,
-                created_at=now_iso,
-            )
-            db.add(badge_activity)
+    # 3. Update streak & active learning day
+    record_active_learning_day(user_state, today_str)
 
     await db.commit()
     
@@ -558,6 +505,56 @@ async def save_learning_position(
         "position_seconds": payload.position_seconds,
         "last_accessed_at": user_state.last_accessed_at,
         "course_progress": prog
+    }
+
+class TimeHeartbeatPayload(BaseModel):
+    duration_seconds: float
+    topic: Optional[str] = None
+    module: Optional[str] = None
+    client_date: Optional[str] = None  # "YYYY-MM-DD"
+    timezone: Optional[str] = None
+
+@router.post("/time-heartbeat")
+@router.post("/session/heartbeat")
+@router.post("/session")
+async def record_time_heartbeat(
+    payload: TimeHeartbeatPayload,
+    user: models.User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Heartbeat endpoint to track active learning duration.
+    Batches duration into user_state.total_learning_hours, logs active calendar date,
+    and updates consecutive learning streak.
+    """
+    result = await db.execute(select(models.UserState).filter(models.UserState.user_id == user.id))
+    user_state = result.scalars().first()
+    if not user_state:
+        user_state = models.UserState(user_id=user.id)
+        db.add(user_state)
+
+    # Sanitize seconds (max 120s per heartbeat to prevent client manipulation)
+    delta_s = min(120.0, max(1.0, float(payload.duration_seconds)))
+    delta_h = delta_s / 3600.0
+    user_state.total_learning_hours = (user_state.total_learning_hours or 0.0) + delta_h
+
+    # Record active calendar day for streak tracking
+    new_streak = record_active_learning_day(user_state, payload.client_date)
+
+    if payload.topic:
+        user_state.current_topic = payload.topic
+    if payload.module:
+        user_state.current_module = payload.module
+
+    user_state.last_accessed_at = datetime.utcnow().isoformat()
+    await db.commit()
+
+    return {
+        "success": True,
+        "total_learning_hours": round(user_state.total_learning_hours, 4),
+        "learning_time_formatted": format_learning_time(user_state.total_learning_hours),
+        "current_streak": new_streak,
+        "active_date": user_state.last_activity_date
     }
 
 @router.get("/resume")
@@ -918,6 +915,8 @@ async def complete_video(
     user_state.last_accessed_at = datetime.utcnow().isoformat()
     if user_state.last_video_id == payload.video_id:
         user_state.last_video_position_seconds = 0.0
+
+    record_active_learning_day(user_state)
 
     try:
         await redis_client.delete(f"dashboard_insights:{user.id}")
