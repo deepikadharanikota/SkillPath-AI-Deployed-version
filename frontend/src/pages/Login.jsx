@@ -100,7 +100,7 @@ export default function Login({ onAuthSuccess }) {
         {/* GitHub OAuth Button */}
         {API_URL && (
           <a 
-            href={`${API_URL}/auth/login`} 
+            href={`${API_URL}/auth/login?redirect_to=${encodeURIComponent(typeof window !== 'undefined' ? window.location.origin : '')}`} 
             style={{ textDecoration: 'none' }}
           >
             <button

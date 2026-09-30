@@ -24,16 +24,32 @@ GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_USER_URL = "https://api.github.com/user"
 GITHUB_EMAILS_URL = "https://api.github.com/user/emails"
 
-def get_frontend_url(request: Request = None) -> str:
+def get_frontend_url(request: Request = None, redirect_to: Optional[str] = None) -> str:
+    # 1. If explicit caller redirect origin was passed and valid
+    if redirect_to and ("vercel.app" in redirect_to or "localhost" in redirect_to or "127.0.0.1" in redirect_to):
+        try:
+            p = urllib.parse.urlparse(redirect_to)
+            if p.netloc and "rax3aw4e4" not in p.netloc:
+                return f"{p.scheme or 'https'}://{p.netloc}".rstrip("/")
+        except Exception:
+            pass
+
+    # 2. Extract from request headers
+    if request:
+        origin = request.headers.get("origin") or request.headers.get("referer")
+        if origin:
+            try:
+                p = urllib.parse.urlparse(origin)
+                cand = f"{p.scheme or 'https'}://{p.netloc}".rstrip("/")
+                if p.netloc and "rax3aw4e4" not in p.netloc:
+                    return cand
+            except Exception:
+                pass
+
+    # 3. Environment variable fallback (sanitizing stale preview hashes)
     url = (os.getenv("FRONTEND_URL") or "").strip().rstrip("/")
-    if not url:
-        if request:
-            origin = request.headers.get("origin") or request.headers.get("referer")
-            if origin:
-                from urllib.parse import urlparse
-                p = urlparse(origin)
-                return f"{p.scheme}://{p.netloc}".rstrip("/")
-        return "https://skill-path-ai-frontend.vercel.app"
+    if "rax3aw4e4" in url or "fvkezwbp5" in url or not url:
+        return "https://skill-path-ai-frontend-git-main-deepika-01f0.vercel.app"
     if not url.startswith("http://") and not url.startswith("https://"):
         url = f"https://{url}"
     return url.rstrip("/")
@@ -45,13 +61,24 @@ def get_redirect_uri(request: Request) -> str:
     return uri
 
 @router.get("/login")
-async def login(request: Request):
+async def login(request: Request, redirect_to: Optional[str] = None):
     if not GITHUB_CLIENT_ID or GITHUB_CLIENT_ID == "mock_id":
         # Mock auth flow for testing without real credentials
         return RedirectResponse(url="/auth/mock_callback")
     
     state = secrets.token_urlsafe(32)
     await redis_client.set(f"oauth_state:{state}", "1", ex=600)
+
+    # Store caller origin to return to the exact same frontend domain
+    caller_origin = redirect_to or request.headers.get("referer")
+    if caller_origin:
+        try:
+            p = urllib.parse.urlparse(caller_origin)
+            if p.netloc and "rax3aw4e4" not in p.netloc:
+                clean = f"{p.scheme or 'https'}://{p.netloc}".rstrip("/")
+                await redis_client.set(f"oauth_origin:{state}", clean, ex=600)
+        except Exception:
+            pass
     
     redirect_uri = get_redirect_uri(request)
     params = {
@@ -72,7 +99,17 @@ async def auth_callback(
     error_description: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
-    frontend_url = get_frontend_url(request)
+    saved_origin = None
+    if state:
+        try:
+            so = await redis_client.get(f"oauth_origin:{state}")
+            if so:
+                saved_origin = so.decode("utf-8") if isinstance(so, bytes) else str(so)
+                await redis_client.delete(f"oauth_origin:{state}")
+        except Exception:
+            pass
+
+    frontend_url = get_frontend_url(request, redirect_to=saved_origin)
     if error:
         err_msg = error_description or error
         return RedirectResponse(url=f"{frontend_url}/login?error={urllib.parse.quote(err_msg)}")
